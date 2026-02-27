@@ -1,0 +1,77 @@
+version: 2
+
+project_name: openai-responses-adapter
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: adapter
+    main: ./cmd/adapter
+    binary: adapter
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+
+archives:
+  - id: binaries
+    ids:
+      - adapter
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: Kurok1
+    name: openai-responses-adapter
+
+changelog:
+  use: git
+
+dockers:
+  - id: docker-amd64
+    ids:
+      - adapter
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile.release
+    image_templates:
+      - ghcr.io/kurok1/openai-responses-adapter:{{ .Tag }}-amd64
+    use: buildx
+  - id: docker-arm64
+    ids:
+      - adapter
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile.release
+    image_templates:
+      - ghcr.io/kurok1/openai-responses-adapter:{{ .Tag }}-arm64
+    use: buildx
+
+docker_manifests:
+  - name_template: ghcr.io/kurok1/openai-responses-adapter:{{ .Tag }}
+    image_templates:
+      - ghcr.io/kurok1/openai-responses-adapter:{{ .Tag }}-amd64
+      - ghcr.io/kurok1/openai-responses-adapter:{{ .Tag }}-arm64
