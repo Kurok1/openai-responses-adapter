@@ -20,6 +20,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,7 @@ import (
 
 	"github.com/Kurok1/openai-responses-adapter/internal/adapter"
 	"github.com/Kurok1/openai-responses-adapter/internal/config"
+	"github.com/Kurok1/openai-responses-adapter/internal/mcp"
 	"github.com/Kurok1/openai-responses-adapter/internal/state"
 	"github.com/Kurok1/openai-responses-adapter/internal/upstream"
 )
@@ -404,5 +407,135 @@ func TestGetResponseByIDNotFound(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestResponses_MCPNativeToolRewriteAndAutoExecute(t *testing.T) {
+	var upstreamReqBodies [][]byte
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream request body: %v", err)
+		}
+		upstreamReqBodies = append(upstreamReqBodies, body)
+
+		w.Header().Set("Content-Type", "application/json")
+		if len(upstreamReqBodies) == 1 {
+			_, _ = w.Write([]byte(`{"id":"chatcmpl_1","model":"gpt-5","choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"current president of france\"}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_2","model":"gpt-5","choices":[{"message":{"role":"assistant","content":"France's current president is Emmanuel Macron."}}]}`))
+	}))
+	defer up.Close()
+
+	var mcpCallCount int
+	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var req struct {
+			Method string                 `json:"method"`
+			Params map[string]interface{} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode mcp request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"test-mcp","version":"1.0.0"}}}`))
+		case "notifications/initialized":
+			_, _ = w.Write([]byte(`{}`))
+		case "tools/list":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"web_search","description":"Web search","inputSchema":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}]}}`))
+		case "tools/call":
+			mcpCallCount++
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{\"items\":[{\"title\":\"France President\",\"snippet\":\"Emmanuel Macron\"}]}"}]}}`))
+		default:
+			t.Fatalf("unexpected mcp method: %s", req.Method)
+		}
+	}))
+	defer mcpServer.Close()
+
+	tempDir := t.TempDir()
+	mcpConfigPath := filepath.Join(tempDir, "mcp.json")
+	mcpConfig := `{"mcpServers":{"test":{"type":"http","url":"` + mcpServer.URL + `"}}}`
+	if err := os.WriteFile(mcpConfigPath, []byte(mcpConfig), 0644); err != nil {
+		t.Fatalf("write mcp config: %v", err)
+	}
+	mcpManager, err := mcp.LoadManagerFromFile(mcpConfigPath)
+	if err != nil {
+		t.Fatalf("load mcp manager: %v", err)
+	}
+	if mcpManager == nil {
+		t.Fatalf("mcp manager should not be nil")
+	}
+
+	cfg := config.Config{
+		UpstreamBaseURL:  up.URL,
+		UpstreamChatPath: "/v1/chat/completions",
+		StoreMaxEntries:  100,
+		StoreTTL:         time.Minute,
+	}
+	client := upstream.NewClient(cfg)
+	h := httptest.NewServer(NewHandlerWithMCP(cfg, client, state.NewMemoryStore(100, time.Minute), mcpManager))
+	defer h.Close()
+
+	reqBody := []byte(`{"model":"gpt-5","input":"Who is the current president of France?","tools":[{"type":"web_search"}]}`)
+	resp, err := http.Post(h.URL+"/v1/responses", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("post responses request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unexpected status=%d body=%s", resp.StatusCode, body)
+	}
+
+	var out adapter.ResponsesOutput
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode final response: %v", err)
+	}
+	if !strings.Contains(out.OutputText, "Emmanuel Macron") {
+		t.Fatalf("unexpected output_text: %s", out.OutputText)
+	}
+	if mcpCallCount != 1 {
+		t.Fatalf("expected mcp tool to be called once, got %d", mcpCallCount)
+	}
+	if len(upstreamReqBodies) != 2 {
+		t.Fatalf("expected 2 upstream calls, got %d", len(upstreamReqBodies))
+	}
+
+	var firstReq map[string]interface{}
+	if err := json.Unmarshal(upstreamReqBodies[0], &firstReq); err != nil {
+		t.Fatalf("decode first upstream request: %v", err)
+	}
+	tools, _ := firstReq["tools"].([]interface{})
+	if len(tools) != 1 {
+		t.Fatalf("expected one upstream tool, got %+v", firstReq["tools"])
+	}
+	firstTool, _ := tools[0].(map[string]interface{})
+	if firstTool["type"] != "function" {
+		t.Fatalf("expected rewritten function tool, got %+v", firstTool)
+	}
+	fn, _ := firstTool["function"].(map[string]interface{})
+	if fn["name"] != "web_search" {
+		t.Fatalf("expected function name web_search, got %+v", fn)
+	}
+
+	var secondReq map[string]interface{}
+	if err := json.Unmarshal(upstreamReqBodies[1], &secondReq); err != nil {
+		t.Fatalf("decode second upstream request: %v", err)
+	}
+	msgs, _ := secondReq["messages"].([]interface{})
+	foundToolMsg := false
+	for _, m := range msgs {
+		msg, _ := m.(map[string]interface{})
+		if msg["role"] == "tool" && msg["tool_call_id"] == "call_1" {
+			foundToolMsg = true
+		}
+	}
+	if !foundToolMsg {
+		t.Fatalf("second request missing tool result message: %+v", secondReq["messages"])
 	}
 }

@@ -29,6 +29,7 @@ type ResponsesRequest struct {
 	Stream             bool            `json:"stream,omitempty"`
 	PreviousResponseID string          `json:"previous_response_id,omitempty"`
 	Store              *bool           `json:"store,omitempty"`
+	DowngradeDeveloper *bool           `json:"downgrade_developer_to_user,omitempty"`
 }
 
 type ResponseTool struct {
@@ -37,6 +38,18 @@ type ResponseTool struct {
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 	Strict      *bool           `json:"strict,omitempty"`
+	Raw         json.RawMessage `json:"-"`
+}
+
+func (t *ResponseTool) UnmarshalJSON(data []byte) error {
+	type alias ResponseTool
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*t = ResponseTool(decoded)
+	t.Raw = append([]byte(nil), data...)
+	return nil
 }
 
 type ChatMessage struct {
@@ -82,7 +95,7 @@ type ChatToolChoice struct {
 type ChatCompletionRequest struct {
 	Model      string        `json:"model"`
 	Messages   []ChatMessage `json:"messages"`
-	Tools      []ChatTool    `json:"tools,omitempty"`
+	Tools      []interface{} `json:"tools,omitempty"`
 	ToolChoice interface{}   `json:"tool_choice,omitempty"`
 	Stream     bool          `json:"stream,omitempty"`
 }
@@ -173,6 +186,7 @@ func BuildChatCompletionRequest(req ResponsesRequest, history []ChatMessage, inp
 	}
 	messages = append(messages, history...)
 	messages = append(messages, inputMessages...)
+	messages = normalizeOutboundRoles(messages, ShouldDowngradeDeveloperRole(req))
 
 	tools, err := mapTools(req.Tools)
 	if err != nil {
@@ -190,6 +204,25 @@ func BuildChatCompletionRequest(req ResponsesRequest, history []ChatMessage, inp
 		ToolChoice: toolChoice,
 		Stream:     req.Stream,
 	}, nil
+}
+
+func normalizeOutboundRoles(messages []ChatMessage, downgradeDeveloper bool) []ChatMessage {
+	if !downgradeDeveloper {
+		return messages
+	}
+	for i := range messages {
+		if messages[i].Role == "developer" {
+			messages[i].Role = "user"
+		}
+	}
+	return messages
+}
+
+func ShouldDowngradeDeveloperRole(req ResponsesRequest) bool {
+	if req.DowngradeDeveloper == nil {
+		return true
+	}
+	return *req.DowngradeDeveloper
 }
 
 func BuildResponsesOutput(respID string, upstreamResp ChatCompletionResponse) (ResponsesOutput, ChatMessage, error) {
@@ -255,31 +288,44 @@ func BuildResponsesOutputFromAssistant(respID, model string, assistant ChatMessa
 	}
 }
 
-func mapTools(tools []ResponseTool) ([]ChatTool, error) {
+func mapTools(tools []ResponseTool) ([]interface{}, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
-	out := make([]ChatTool, 0, len(tools))
+	out := make([]interface{}, 0, len(tools))
 	for _, t := range tools {
-		if t.Type != "function" {
-			return nil, fmt.Errorf("unsupported tool type: %s", t.Type)
+		if strings.TrimSpace(t.Type) == "" {
+			return nil, fmt.Errorf("tool.type is required")
 		}
-		if strings.TrimSpace(t.Name) == "" {
-			return nil, fmt.Errorf("tool.name is required for function tool")
+		if t.Type == "function" {
+			if strings.TrimSpace(t.Name) == "" {
+				return nil, fmt.Errorf("tool.name is required for function tool")
+			}
+			strict := true
+			if t.Strict != nil {
+				strict = *t.Strict
+			}
+			out = append(out, ChatTool{
+				Type: "function",
+				Function: ChatFunction{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  t.Parameters,
+					Strict:      strict,
+				},
+			})
+			continue
 		}
-		strict := true
-		if t.Strict != nil {
-			strict = *t.Strict
+
+		if len(t.Raw) == 0 {
+			return nil, fmt.Errorf("tool raw payload is empty for type: %s", t.Type)
 		}
-		out = append(out, ChatTool{
-			Type: "function",
-			Function: ChatFunction{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.Parameters,
-				Strict:      strict,
-			},
-		})
+
+		var passthrough map[string]interface{}
+		if err := json.Unmarshal(t.Raw, &passthrough); err != nil {
+			return nil, fmt.Errorf("unmarshal tool %s: %w", t.Type, err)
+		}
+		out = append(out, passthrough)
 	}
 	return out, nil
 }
@@ -305,18 +351,22 @@ func mapToolChoice(raw json.RawMessage) (interface{}, error) {
 	}
 
 	typeName, _ := obj["type"].(string)
-	if typeName != "function" {
-		return nil, fmt.Errorf("unsupported tool_choice type: %s", typeName)
+	if strings.TrimSpace(typeName) == "" {
+		return nil, fmt.Errorf("tool_choice.type is required")
 	}
-	name, _ := obj["name"].(string)
-	if strings.TrimSpace(name) == "" {
-		return nil, fmt.Errorf("tool_choice.name is required for function")
+	if typeName == "function" {
+		name, _ := obj["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("tool_choice.name is required for function")
+		}
+
+		return ChatToolChoice{
+			Type:     "function",
+			Function: ChatToolChoiceFunction{Name: name},
+		}, nil
 	}
 
-	return ChatToolChoice{
-		Type:     "function",
-		Function: ChatToolChoiceFunction{Name: name},
-	}, nil
+	return obj, nil
 }
 
 func itemToMessage(item map[string]interface{}) (ChatMessage, error) {

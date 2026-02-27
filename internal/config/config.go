@@ -36,6 +36,7 @@ type Config struct {
 	UpstreamAPIKey   string
 	StoreMaxEntries  int
 	StoreTTL         time.Duration
+	MCPConfigPath    string
 }
 
 func LoadFromEnv() Config {
@@ -46,6 +47,7 @@ func LoadFromEnv() Config {
 		UpstreamAPIKey:   os.Getenv("UPSTREAM_API_KEY"),
 		StoreMaxEntries:  getenvInt("STORE_MAX_ENTRIES", defaultStoreMaxEntries),
 		StoreTTL:         getenvDuration("STORE_TTL", defaultStoreTTL),
+		MCPConfigPath:    os.Getenv("MCP_CONFIG_PATH"),
 	}
 }
 

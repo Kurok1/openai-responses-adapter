@@ -24,6 +24,7 @@ import (
 
 	"github.com/Kurok1/openai-responses-adapter/internal/config"
 	"github.com/Kurok1/openai-responses-adapter/internal/httpserver"
+	"github.com/Kurok1/openai-responses-adapter/internal/mcp"
 	"github.com/Kurok1/openai-responses-adapter/internal/state"
 	"github.com/Kurok1/openai-responses-adapter/internal/upstream"
 )
@@ -40,7 +41,14 @@ func main() {
 
 	client := upstream.NewClient(cfg)
 	store := state.NewMemoryStore(cfg.StoreMaxEntries, cfg.StoreTTL)
-	handler := httpserver.NewHandler(cfg, client, store)
+	mcpManager, err := mcp.LoadManagerFromFile(cfg.MCPConfigPath)
+	if err != nil {
+		log.Fatalf("load mcp manager: %v", err)
+	}
+	if mcpManager != nil {
+		log.Printf("mcp manager enabled config=%s", cfg.MCPConfigPath)
+	}
+	handler := httpserver.NewHandlerWithMCP(cfg, client, store, mcpManager)
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
