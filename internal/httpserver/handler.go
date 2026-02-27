@@ -95,7 +95,7 @@ func (h *Handler) responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chatReq, err := adapter.BuildChatCompletionRequest(respReq, history, inputMessages)
+	chatReq, err := adapter.BuildChatCompletionRequest(respReq, history, inputMessages, h.cfg.AllowDowngradeDeveloperRole)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
 		return

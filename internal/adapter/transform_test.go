@@ -65,21 +65,6 @@ func TestShouldStore_ExplicitFalse(t *testing.T) {
 	}
 }
 
-func TestShouldDowngradeDeveloperRole_DefaultTrue(t *testing.T) {
-	req := ResponsesRequest{}
-	if !ShouldDowngradeDeveloperRole(req) {
-		t.Fatalf("expected default downgrade_developer_to_user=true")
-	}
-}
-
-func TestShouldDowngradeDeveloperRole_ExplicitFalse(t *testing.T) {
-	v := false
-	req := ResponsesRequest{DowngradeDeveloper: &v}
-	if ShouldDowngradeDeveloperRole(req) {
-		t.Fatalf("expected downgrade_developer_to_user=false")
-	}
-}
-
 func TestParseResponsesRequest_CapturesRawTool(t *testing.T) {
 	raw := []byte(`{"model":"gpt-5","input":"hi","tools":[{"type":"web_search","search_context_size":"medium"}]}`)
 	req, err := ParseResponsesRequest(raw)
@@ -108,7 +93,7 @@ func TestBuildChatCompletionRequest_ToolsAndToolChoice(t *testing.T) {
 		ToolChoice: json.RawMessage(`{"type":"function","name":"get_weather"}`),
 	}
 
-	chatReq, err := BuildChatCompletionRequest(req, nil, []ChatMessage{{Role: "user", Content: "weather in tokyo"}})
+	chatReq, err := BuildChatCompletionRequest(req, nil, []ChatMessage{{Role: "user", Content: "weather in tokyo"}}, false)
 	if err != nil {
 		t.Fatalf("BuildChatCompletionRequest error: %v", err)
 	}
@@ -140,7 +125,7 @@ func TestBuildChatCompletionRequest_BuiltinToolsPassThrough(t *testing.T) {
 		ToolChoice: json.RawMessage(`{"type":"web_search"}`),
 	}
 
-	chatReq, err := BuildChatCompletionRequest(req, nil, []ChatMessage{{Role: "user", Content: "who is president of france"}})
+	chatReq, err := BuildChatCompletionRequest(req, nil, []ChatMessage{{Role: "user", Content: "who is president of france"}}, false)
 	if err != nil {
 		t.Fatalf("BuildChatCompletionRequest error: %v", err)
 	}
@@ -174,7 +159,7 @@ func TestBuildChatCompletionRequest_DeveloperRoleDowngradedToUser(t *testing.T) 
 		{Role: "developer", Content: "current developer message"},
 	}
 
-	chatReq, err := BuildChatCompletionRequest(req, history, input)
+	chatReq, err := BuildChatCompletionRequest(req, history, input, false)
 	if err != nil {
 		t.Fatalf("BuildChatCompletionRequest error: %v", err)
 	}
@@ -202,7 +187,7 @@ func TestBuildChatCompletionRequest_DeveloperRoleKeepWhenDisabled(t *testing.T) 
 		{Role: "developer", Content: "current developer message"},
 	}
 
-	chatReq, err := BuildChatCompletionRequest(req, nil, input)
+	chatReq, err := BuildChatCompletionRequest(req, nil, input, false)
 	if err != nil {
 		t.Fatalf("BuildChatCompletionRequest error: %v", err)
 	}

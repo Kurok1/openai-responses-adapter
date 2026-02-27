@@ -176,7 +176,7 @@ func BuildInputMessages(input json.RawMessage) ([]ChatMessage, error) {
 	return messages, nil
 }
 
-func BuildChatCompletionRequest(req ResponsesRequest, history []ChatMessage, inputMessages []ChatMessage) (ChatCompletionRequest, error) {
+func BuildChatCompletionRequest(req ResponsesRequest, history []ChatMessage, inputMessages []ChatMessage, downgradeDeveloper bool) (ChatCompletionRequest, error) {
 	messages := make([]ChatMessage, 0, len(history)+len(inputMessages)+1)
 	if strings.TrimSpace(req.Instructions) != "" {
 		messages = append(messages, ChatMessage{
@@ -186,7 +186,7 @@ func BuildChatCompletionRequest(req ResponsesRequest, history []ChatMessage, inp
 	}
 	messages = append(messages, history...)
 	messages = append(messages, inputMessages...)
-	messages = normalizeOutboundRoles(messages, ShouldDowngradeDeveloperRole(req))
+	messages = normalizeOutboundRoles(messages, downgradeDeveloper)
 
 	tools, err := mapTools(req.Tools)
 	if err != nil {
@@ -216,13 +216,6 @@ func normalizeOutboundRoles(messages []ChatMessage, downgradeDeveloper bool) []C
 		}
 	}
 	return messages
-}
-
-func ShouldDowngradeDeveloperRole(req ResponsesRequest) bool {
-	if req.DowngradeDeveloper == nil {
-		return true
-	}
-	return *req.DowngradeDeveloper
 }
 
 func BuildResponsesOutput(respID string, upstreamResp ChatCompletionResponse) (ResponsesOutput, ChatMessage, error) {

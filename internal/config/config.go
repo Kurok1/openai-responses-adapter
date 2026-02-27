@@ -30,24 +30,26 @@ const (
 
 // Config holds process-level settings.
 type Config struct {
-	ListenAddr       string
-	UpstreamBaseURL  string
-	UpstreamChatPath string
-	UpstreamAPIKey   string
-	StoreMaxEntries  int
-	StoreTTL         time.Duration
-	MCPConfigPath    string
+	ListenAddr                  string
+	UpstreamBaseURL             string
+	UpstreamChatPath            string
+	UpstreamAPIKey              string
+	StoreMaxEntries             int
+	StoreTTL                    time.Duration
+	MCPConfigPath               string
+	AllowDowngradeDeveloperRole bool
 }
 
 func LoadFromEnv() Config {
 	return Config{
-		ListenAddr:       getenv("LISTEN_ADDR", defaultListenAddr),
-		UpstreamBaseURL:  getenv("UPSTREAM_BASE_URL", defaultUpstreamBaseURL),
-		UpstreamChatPath: getenv("UPSTREAM_CHAT_PATH", defaultUpstreamChatPath),
-		UpstreamAPIKey:   os.Getenv("UPSTREAM_API_KEY"),
-		StoreMaxEntries:  getenvInt("STORE_MAX_ENTRIES", defaultStoreMaxEntries),
-		StoreTTL:         getenvDuration("STORE_TTL", defaultStoreTTL),
-		MCPConfigPath:    os.Getenv("MCP_CONFIG_PATH"),
+		ListenAddr:                  getenv("LISTEN_ADDR", defaultListenAddr),
+		UpstreamBaseURL:             getenv("UPSTREAM_BASE_URL", defaultUpstreamBaseURL),
+		UpstreamChatPath:            getenv("UPSTREAM_CHAT_PATH", defaultUpstreamChatPath),
+		UpstreamAPIKey:              os.Getenv("UPSTREAM_API_KEY"),
+		StoreMaxEntries:             getenvInt("STORE_MAX_ENTRIES", defaultStoreMaxEntries),
+		StoreTTL:                    getenvDuration("STORE_TTL", defaultStoreTTL),
+		MCPConfigPath:               os.Getenv("MCP_CONFIG_PATH"),
+		AllowDowngradeDeveloperRole: getenvInt("ALLOW_DOWNGRADE_DEVELOPER", 0) == 1,
 	}
 }
 
