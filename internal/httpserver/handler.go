@@ -73,6 +73,9 @@ func (h *Handler) responses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
 		return
 	}
+
+	log.Printf("[request] model=%s stream=%v tools=%d prev_id=%s input_len=%d",
+		respReq.Model, respReq.Stream, len(respReq.Tools), respReq.PreviousResponseID, len(respReq.Input))
 	respReq, err = h.rewriteNativeTools(respReq)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
@@ -122,6 +125,7 @@ func (h *Handler) responses(w http.ResponseWriter, r *http.Request) {
 		if err := h.streamResponses(w, responseID, respReq, history, inputMessages, resp); err != nil {
 			log.Printf("stream responses failed: %v", err)
 		}
+		log.Printf("[stream-done] id=%s model=%s", responseID, respReq.Model)
 		return
 	}
 
@@ -144,6 +148,7 @@ func (h *Handler) responses(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	log.Printf("[response] id=%s model=%s status=%s output_items=%d", out.ID, out.Model, out.Status, len(out.Output))
 	writeJSON(w, http.StatusOK, out)
 }
 

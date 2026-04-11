@@ -1,11 +1,3 @@
 {
-  "mcpServers": {
-    "web_search": {
-      "type": "http",
-      "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
-      "headers": {
-        "Authorization": "Bearer your_api_key"
-      }
-    }
-  }
+  "mcpServers": {}
 }

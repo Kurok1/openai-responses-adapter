@@ -1,28 +1,15 @@
-# macOS
-.DS_Store
+# Built binary
+/adapter
 
-# IDE/editor
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Go build/test
-bin/
-dist/
-coverage.out
-*.test
-*.prof
-
-# Go workspace
-vendor/
-
-# Env/local config
+# Secrets
 .env
-.env.*
 
-# Logs
-*.log
+# Downloaded archives
+*.tar.gz
 
-# Generated/temp
-tmp/
+# Python artifacts (old filter, removed)
+__pycache__/
+*.pyc
+
+# Old binary backups
+old/

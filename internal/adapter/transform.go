@@ -17,6 +17,7 @@ package adapter
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -310,15 +311,8 @@ func mapTools(tools []ResponseTool) ([]interface{}, error) {
 			continue
 		}
 
-		if len(t.Raw) == 0 {
-			return nil, fmt.Errorf("tool raw payload is empty for type: %s", t.Type)
-		}
-
-		var passthrough map[string]interface{}
-		if err := json.Unmarshal(t.Raw, &passthrough); err != nil {
-			return nil, fmt.Errorf("unmarshal tool %s: %w", t.Type, err)
-		}
-		out = append(out, passthrough)
+		log.Printf("[tool-filter] dropping non-function tool: type=%s name=%s", t.Type, t.Name)
+		continue
 	}
 	return out, nil
 }
@@ -385,6 +379,20 @@ func itemToMessage(item map[string]interface{}) (ChatMessage, error) {
 			return ChatMessage{}, err
 		}
 		return ChatMessage{Role: "tool", ToolCallID: callID, Content: output}, nil
+	case "function_call":
+		callID, _ := item["call_id"].(string)
+		name, _ := item["name"].(string)
+		args, _ := item["arguments"].(string)
+		return ChatMessage{
+			Role: "assistant",
+			ToolCalls: []ChatToolCall{
+				{
+					ID:       callID,
+					Type:     "function",
+					Function: ChatToolFunction{Name: name, Arguments: args},
+				},
+			},
+		}, nil
 	default:
 		return ChatMessage{}, fmt.Errorf("unsupported input item type: %s", itemType)
 	}
@@ -392,10 +400,7 @@ func itemToMessage(item map[string]interface{}) (ChatMessage, error) {
 
 func messageContentToString(v interface{}) (string, error) {
 	if s, ok := v.(string); ok {
-		if strings.TrimSpace(s) == "" {
-			return "", fmt.Errorf("message content cannot be empty")
-		}
-		return s, nil
+	return s, nil
 	}
 
 	parts, ok := v.([]interface{})
@@ -423,7 +428,7 @@ func messageContentToString(v interface{}) (string, error) {
 		builder.WriteString(text)
 	}
 	if builder.Len() == 0 {
-		return "", fmt.Errorf("message content has no text")
+		return "", nil
 	}
 	return builder.String(), nil
 }
