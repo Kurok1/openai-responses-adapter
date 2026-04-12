@@ -172,6 +172,13 @@ func BuildInputMessages(input json.RawMessage) ([]ChatMessage, error) {
 		if err != nil {
 			return nil, err
 		}
+		if len(messages) > 0 && msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			last := &messages[len(messages)-1]
+			if last.Role == "assistant" && len(last.ToolCalls) > 0 {
+				last.ToolCalls = append(last.ToolCalls, msg.ToolCalls...)
+				continue
+			}
+		}
 		messages = append(messages, msg)
 	}
 	return messages, nil
