@@ -1,8 +1,34 @@
+# macOS
+.DS_Store
+
+# IDE/editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go build/test
+bin/
+dist/
+coverage.out
+*.test
+*.prof
+
+# Go workspace
+vendor/
+
+# Env/local config
+.env
+#.env.*
+
+# Logs
+*.log
+
+# Generated/temp
+tmp/
+
 # Built binary
 /adapter
-
-# Secrets
-.env
 
 # Downloaded archives
 *.tar.gz
